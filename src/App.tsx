@@ -1,40 +1,40 @@
-import React from 'react';
-import Game from "reactified-phaser/Game"
-import {observable} from "mobx"
-import {observer} from "mobx-react"
+import React, { useState } from 'react';
+import Canvas from "./components/canvas"
+import PlusMin from './components/plusMin';
+import { getRandomInt } from './helpers/random';
+import BooleanStore from './store/booleans';
+import EarningsStore from "./store/earnings"
 
 
+import StakeStore from './store/stake';
 
 
-//Using observables but any other store would be okay aswell. 
-class ScoreStore {
-    @observable
-    score: number = 0
-}
+export const earningStore = new EarningsStore()
+export const stakeStore = new StakeStore()
+export const booleanStore = new BooleanStore();
 
-const scoreStore = new ScoreStore()
-
-
-let player:Phaser.Physics.Arcade.Sprite | undefined
-let coins:Phaser.Physics.Arcade.Group | undefined ;
-let bombs: Phaser.Physics.Arcade.Group | undefined;
+let player: Phaser.Physics.Arcade.Sprite | undefined
+let coins: Phaser.Physics.Arcade.Group | undefined;
 let platforms: Phaser.Physics.Arcade.StaticGroup | undefined;
 let cursors: Phaser.Types.Input.Keyboard.CursorKeys | undefined;
 let gameOver = false;
 
 
 
+
 // In the Phaser config below I actually pass `this` in as an argument
 // so I can leverage intellisense
-function preload (scene: Phaser.Scene) {
+export function preload(scene: Phaser.Scene) {
     scene.load.image('sky', '/assets/sky.png');
     scene.load.image('ground', '/assets/platform.png');
     scene.load.image('coin', '/assets/coin.png');
-    scene.load.image('bomb', '/assets/bomb.png');
     scene.load.spritesheet('char', '/assets/char.png', { frameWidth: 32, frameHeight: 29 });
 }
-
-function create (scene: Phaser.Scene) {
+export function create(scene: Phaser.Scene) {
+    scene.lights.enable()
+    scene.lights.addLight(300, 300, 300, 0xff0000, 1);
+    scene.lights.addLight(400, 300, 300, 0x00ff00, 1);
+    scene.lights.addLight(600, 500, 300, 0x0000ff, 1);
     //  A simple background for our game
     scene.add.image(400, 300, 'sky');
 
@@ -46,12 +46,12 @@ function create (scene: Phaser.Scene) {
     platforms.create(400, 568, 'ground').setScale(2).refreshBody();
 
     // //  Now let's create some ledges
-    platforms.create(600, 400, 'ground');
+    platforms.create(400, 400, 'ground');
     platforms.create(50, 250, 'ground');
     platforms.create(750, 220, 'ground');
 
     // The player and its settings
-    player = scene.physics.add.sprite(100, 450, 'char');
+    player = scene.physics.add.sprite(50, 450, 'char');
 
     //  Player physics properties. Give the little guy a slight bounce.
     player!.setBounce(0.2);
@@ -67,7 +67,7 @@ function create (scene: Phaser.Scene) {
 
     scene.anims.create({
         key: 'turn',
-        frames: [ { key: 'char', frame: 4 } ],
+        frames: [{ key: 'char', frame: 4 }],
         frameRate: 20
     });
 
@@ -93,19 +93,17 @@ function create (scene: Phaser.Scene) {
         (child as unknown as Phaser.Physics.Arcade.Body).setBounceY(Phaser.Math.FloatBetween(0.1, 0.4));
 
     });
-    bombs = scene.physics.add.group();
+
 
     //  Collide the player and the coins with the platforms
     scene.physics.add.collider(player, platforms);
     scene.physics.add.collider(coins, platforms);
-    scene.physics.add.collider(bombs, platforms);
+
 
     //  Checks to see if the player overlaps with any of the coins, if he does call the collectcoin function
     scene.physics.add.overlap(player, coins, collectcoin, undefined, scene);
-    scene.physics.add.collider(player, bombs, hitBomb, undefined, scene);
 }
-
-function update () {
+export function update(scene: Phaser.Scene) {
     if (gameOver) {
         return;
     }
@@ -126,82 +124,46 @@ function update () {
     if (cursors!.up!.isDown && player!.body.touching.down) {
         player!.setVelocityY(-330);
     }
+
 }
 
-function collectcoin (player: any, coin: any) {
+function collectcoin(player: any, coin: any) {
     coin.disableBody(true, true);
+    let rng = getRandomInt(100)
+    if (rng > 95) { 
+        earningStore.earnings += stakeStore.stake 
+    }
     //  Add and update the score *in the shared scoreStore*
-    scoreStore.score += Phaser.Math.RND.between(0, 10) / Phaser.Math.RND.between(50, 88);
-    if (coins!.countActive(true) === 0)
-    {
-        //  A new batch of coins to collect
-        coins!.children.iterate(function (child:any) {
-            (child as any).enableBody(true, child.x, 0, true, true);
-        });
-
-        let x = (player.x < 400) ? Phaser.Math.Between(400, 800) : Phaser.Math.Between(0, 400);
-        let bomb = bombs!.create(x, 16, 'bomb');
-        bomb.setBounce(1);
-        bomb.setCollideWorldBounds(true);
-        bomb.setVelocity(Phaser.Math.Between(-200, 200), 20);
-        bomb.allowGravity = false;
+    earningStore.earnings += Phaser.Math.RND.between(0, 10) / Phaser.Math.RND.between(stakeStore.stake * 5 * 10, stakeStore.stake * 10 * 10);
+    if (coins!.countActive(true) === 0) {
+        player.anims.play('turn');
+        // booleanStore.pause = true;
+       console.log(booleanStore.pause)
     }
 }
 
-function hitBomb (player: any) {
-    // @ts-ignore
-    this.physics.pause();
-    player.setTint(0xff0000);
-    player.anims.play('turn');
-    gameOver = true;
-}
-
-const config = {
-    type: Phaser.AUTO,
-    width: 800,
-    height: 600,
-    physics: {
-        default: 'arcade',
-        arcade: {
-            gravity: { y: 300 },
-            debug: false
-        }
-    },
-    scene: {
-
-        // I know it looks a little weird passing `this` in like this,
-        // but this means `preload` and `create` will have a `scene`
-        // argument (that's what I call it anyway) that benefits
-        // from intellisense because the type of `scene` will be known
-        // in the function body.
-        preload: function() { preload(this as unknown as Phaser.Scene) },
-        create: function() { create(this as unknown as Phaser.Scene) },
-        update: update
-    }
-};
 
 function App() {
-  return (
-    <div className="App">
-        <ExampleGame/>
-    </div>
-  );
+    const [menu, setMenu] = useState(booleanStore.pause)
+    const handleClick = () => {
+        console.log(booleanStore.pause, menu)
+        setMenu(false)
+        booleanStore.pause = false
+        console.log(booleanStore.pause, menu)
+    }
+    return (
+        <div className="App">
+            {menu && <div className="menu" style={{
+                left: 0
+            }}><h1>ChouChou</h1>
+                <PlusMin />
+                <button onClick={() => handleClick()} className="start">Start</button>
+            </div>}
+            <Canvas />
+        </div>
+    );
 }
 
-const ExampleGame = observer(() =>
-    <Game config={config}>
-        {/*Game GUI goes here, (children of the `<Game>` component).*/}
-        {/*Stuff here is styled to fit within the game canvas dimensions.*/}
-        <div style={{
-            position: "relative",
-            fontSize: 32,
-            color: "#ededed",
-            top: config.height - 48,
-            left: 32
-        }}>
-            Geld: € {scoreStore.score}
-        </div>
-    </Game>
-)
+
 
 export default App;
